@@ -1,0 +1,9 @@
+Bromine-API
+Bromine-Server
+
+run/
+
+build/
+.gradle/
+
+.idea/
