@@ -1,0 +1,25 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mediang <104988785+Mediang@users.noreply.github.com>
+Date: Thu, 5 May 2022 18:24:35 +0000
+Subject: [PATCH] Bromine config files
+
+
+diff --git a/src/main/java/org/bukkit/Server.java b/src/main/java/org/bukkit/Server.java
+index 0eda17c8642aa49c2f57c409c3bd3234948feae9..bc6ac8d71ee268edf2b3b00c00a5635cd3a658c3 100644
+--- a/src/main/java/org/bukkit/Server.java
++++ b/src/main/java/org/bukkit/Server.java
+@@ -1902,6 +1902,14 @@ public interface Server extends PluginMessageRecipient, net.kyori.adventure.audi
+         }
+         // Paper end
+ 
++        // Bromine start
++        @NotNull
++        public org.bukkit.configuration.file.YamlConfiguration getBromineConfig()
++        {
++            throw new UnsupportedOperationException("Not supported yet.");
++        }
++        // Bromine end
++
+         /**
+          * Sends the component to the player
+          *
