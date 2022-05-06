@@ -1,0 +1,599 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mediang <104988785+Mediang@users.noreply.github.com>
+Date: Fri, 6 May 2022 18:52:03 +0000
+Subject: [PATCH] Add asynchronous entity tracker
+
+
+diff --git a/src/main/java/io/github/mediang/bromine/BromineConfig.java b/src/main/java/io/github/mediang/bromine/BromineConfig.java
+index fe0bb82fe9636737c6e74a22d973f0a04282863c..e061f0e77cdd27dc58c62071f193c5e6d91a0cc0 100644
+--- a/src/main/java/io/github/mediang/bromine/BromineConfig.java
++++ b/src/main/java/io/github/mediang/bromine/BromineConfig.java
+@@ -90,4 +90,25 @@ public class BromineConfig {
+         config.addDefault(path, def);
+         return config.getInt(path, config.getInt(path));
+     }
++
++    public static boolean asyncTrackerVelocityEvent = false;
++    public static boolean asyncTrackerEnabled = true;
++    public static boolean wasAsyncTracker = false;
++    private static void asyncEntityTracker() {
++        // Enabling/Disabling of the velocity event should be safe to do between reloads
++        asyncTrackerVelocityEvent = getBoolean("settings.async-tracker.velocity-event", asyncTrackerVelocityEvent);
++
++        if (wasAsyncTracker) return;
++        wasAsyncTracker = true;
++
++        asyncTrackerEnabled = getBoolean("settings.async-tracker.enabled", asyncTrackerEnabled);
++
++        config.setComments("settings.async-tracker", java.util.List.of(
++            "WARNING: If your server only has a few entities, this may negatively impact performance."));
++        config.setComments("settings.async-tracker.enabled", java.util.List.of(
++            "If true, entity tracking will be done asynchronously."));
++        config.setComments("settings.async-tracker.velocity-event", java.util.List.of(
++            "This option enables the use of a velocity event, which gets called when a player is hit by something.",
++            "WARNING: The event is read-only and overwriting velocity will have no effect."));
++    }
+ }
+diff --git a/src/main/java/io/github/mediang/bromine/WrappedInt2ObjectMap.java b/src/main/java/io/github/mediang/bromine/WrappedInt2ObjectMap.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..4c5c9ab67885a579edba505477ab9b435492d8b0
+--- /dev/null
++++ b/src/main/java/io/github/mediang/bromine/WrappedInt2ObjectMap.java
+@@ -0,0 +1,317 @@
++package io.github.mediang.bromine;
++
++import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
++import it.unimi.dsi.fastutil.ints.IntCollection;
++import it.unimi.dsi.fastutil.ints.IntIterator;
++import it.unimi.dsi.fastutil.ints.IntSet;
++import it.unimi.dsi.fastutil.objects.ObjectCollection;
++import it.unimi.dsi.fastutil.objects.ObjectIterator;
++import it.unimi.dsi.fastutil.objects.ObjectSet;
++import org.jetbrains.annotations.NotNull;
++
++import java.util.Collection;
++import java.util.Iterator;
++import java.util.Map;
++
++// This is used for plugin compatibility in the async entity tracker.
++// Plugins could rely on the ChunkMap#entityMap field being an Int2ObjectMap.
++public class WrappedInt2ObjectMap<T> implements Int2ObjectMap<T> {
++
++    private final Map<Integer, T> delegate;
++
++    public WrappedInt2ObjectMap(Map<Integer, T> delegate) {
++        this.delegate = delegate;
++    }
++
++    @Override
++    public T put(int key, T value) {
++        return delegate.put(key, value);
++    }
++
++    @SuppressWarnings("deprecation")
++    @Override
++    public T put(Integer key, T value) {
++        return delegate.put(key, value);
++    }
++
++    @Override
++    public T remove(int key) {
++        return delegate.remove(key);
++    }
++
++    @Override
++    public boolean remove(Object key, Object value) {
++        return delegate.remove(key, value);
++    }
++
++    @Override
++    public boolean remove(int key, Object value) {
++        // noinspection SuspiciousMethodCalls // You sussy baka too intellij
++        return delegate.remove(key, value);
++    }
++
++    @SuppressWarnings("deprecation")
++    @Override
++    public T remove(Object key) {
++        return delegate.remove(key);
++    }
++
++    @Override
++    public int size() {
++        return delegate.size();
++    }
++
++    @Override
++    public boolean isEmpty() {
++        return delegate.isEmpty();
++    }
++
++    @Override
++    public boolean containsValue(Object value) {
++        return delegate.containsValue(value);
++    }
++
++    @Override
++    public void putAll(@NotNull Map<? extends Integer, ? extends T> m) {
++        delegate.putAll(m);
++    }
++
++    @Override
++    public void defaultReturnValue(T t) {
++        throw new UnsupportedOperationException(); // Unused
++    }
++
++    @Override
++    public T defaultReturnValue() {
++        throw new UnsupportedOperationException(); // Unused
++    }
++
++    @Override
++    public ObjectSet<Entry<T>> int2ObjectEntrySet() {
++        throw new UnsupportedOperationException(); // Unused
++    }
++
++    @Override
++    public IntSet keySet() {
++        return new IntSet() {
++            @Override
++            public IntIterator iterator() {
++                Iterator<Integer> iterator = delegate.keySet().iterator();
++                return new IntIterator() {
++                    @Override
++                    public int nextInt() {
++                        return iterator.next();
++                    }
++
++                    @Override
++                    public boolean hasNext() {
++                        return iterator.hasNext();
++                    }
++
++                    @Override
++                    public void remove() {
++                        iterator.remove();
++                    }
++                };
++            }
++
++            @Override
++            public boolean remove(int i) {
++                return delegate.keySet().remove(i);
++            }
++
++            @Override
++            public boolean add(int i) {
++                return delegate.keySet().add(i);
++            }
++
++            @Override
++            public boolean contains(int i) {
++                return delegate.containsKey(i);
++            }
++
++            @Override
++            public int[] toIntArray() {
++                int[] arr = new int[delegate.size()];
++                int i = 0;
++                for (Integer key : delegate.keySet()) {
++                    arr[i++] = key;
++                }
++                return arr;
++            }
++
++            @Override
++            public int[] toArray(int[] ints) {
++                return new int[0];
++            }
++
++            @Override
++            public boolean addAll(IntCollection intCollection) {
++                return delegate.keySet().addAll(intCollection);
++            }
++
++            @Override
++            public boolean containsAll(IntCollection intCollection) {
++                return delegate.keySet().containsAll(intCollection);
++            }
++
++            @Override
++            public boolean removeAll(IntCollection intCollection) {
++                return delegate.keySet().removeAll(intCollection);
++            }
++
++            @Override
++            public boolean retainAll(IntCollection intCollection) {
++                return delegate.keySet().retainAll(intCollection);
++            }
++
++            @Override
++            public int size() {
++                return delegate.size();
++            }
++
++            @Override
++            public boolean isEmpty() {
++                return delegate.isEmpty();
++            }
++
++            @NotNull
++            @Override
++            public Object @NotNull [] toArray() {
++                return delegate.keySet().toArray();
++            }
++
++            @NotNull
++            @Override
++            public <T1> T1 @NotNull [] toArray(@NotNull T1 @NotNull [] a) {
++                // noinspection SuspiciousToArrayCall
++                return delegate.keySet().toArray(a);
++            }
++
++            @Override
++            public boolean containsAll(@NotNull Collection<?> c) {
++                return delegate.keySet().containsAll(c);
++            }
++
++            @Override
++            public boolean addAll(@NotNull Collection<? extends Integer> c) {
++                return delegate.keySet().addAll(c);
++            }
++
++            @Override
++            public boolean removeAll(@NotNull Collection<?> c) {
++                return delegate.keySet().removeAll(c);
++            }
++
++            @Override
++            public boolean retainAll(@NotNull Collection<?> c) {
++                return delegate.keySet().retainAll(c);
++            }
++
++            @Override
++            public void clear() {
++                delegate.clear();
++            }
++        };
++    }
++
++    @Override
++    public ObjectCollection<T> values() {
++        return new ObjectCollection<>() {
++            @Override
++            public ObjectIterator<T> iterator() {
++                Iterator<T> iterator = delegate.values().iterator();
++                return new ObjectIterator<>() {
++                    @Override
++                    public boolean hasNext() {
++                        return iterator.hasNext();
++                    }
++
++                    @Override
++                    public T next() {
++                        return iterator.next();
++                    }
++
++                    @Override
++                    public void remove() {
++                        iterator.remove();
++                    }
++                };
++            }
++
++            @Override
++            public int size() {
++                return delegate.size();
++            }
++
++            @Override
++            public boolean isEmpty() {
++                return delegate.isEmpty();
++            }
++
++            @Override
++            public boolean contains(Object o) {
++                // noinspection SuspiciousMethodCalls
++                return delegate.containsValue(o);
++            }
++
++            @NotNull
++            @Override
++            public Object @NotNull [] toArray() {
++                return delegate.values().toArray();
++            }
++
++            @NotNull
++            @Override
++            public <T1> T1 @NotNull [] toArray(@NotNull T1 @NotNull [] a) {
++                // noinspection SuspiciousToArrayCall
++                return delegate.values().toArray(a);
++            }
++
++            @Override
++            public boolean add(T t) {
++                return delegate.values().add(t);
++            }
++
++            @Override
++            public boolean remove(Object o) {
++                return delegate.values().remove(o);
++            }
++
++            @Override
++            public boolean containsAll(@NotNull Collection<?> c) {
++                return delegate.values().containsAll(c);
++            }
++
++            @Override
++            public boolean addAll(@NotNull Collection<? extends T> c) {
++                return delegate.values().addAll(c);
++            }
++
++            @Override
++            public boolean removeAll(@NotNull Collection<?> c) {
++                return delegate.values().removeAll(c);
++            }
++
++            @Override
++            public boolean retainAll(@NotNull Collection<?> c) {
++                return delegate.values().retainAll(c);
++            }
++
++            @Override
++            public void clear() {
++                delegate.clear();
++            }
++        };
++    }
++
++    @Override
++    public T get(int i) {
++        return delegate.get(i);
++    }
++
++    @Override
++    public boolean containsKey(int i) {
++        return delegate.containsKey(i);
++    }
++}
+diff --git a/src/main/java/net/minecraft/server/MinecraftServer.java b/src/main/java/net/minecraft/server/MinecraftServer.java
+index bb631d46fa53ff0b512a43165ecf3ef6c381b181..def77625f68a57fa9f1c965cb41c98d2c38d4a3b 100644
+--- a/src/main/java/net/minecraft/server/MinecraftServer.java
++++ b/src/main/java/net/minecraft/server/MinecraftServer.java
+@@ -310,6 +310,7 @@ public abstract class MinecraftServer extends ReentrantBlockableEventLoop<TickTa
+     public volatile boolean abnormalExit = false; // Paper
+     
+     public gg.pufferfish.pufferfish.util.AsyncExecutor mobSpawnExecutor = new gg.pufferfish.pufferfish.util.AsyncExecutor("MobSpawning", () -> true); // Pufferfish - optimize mob spawning
++    public gg.pufferfish.pufferfish.util.AsyncExecutor bromine$asyncTrackerExecutor = new gg.pufferfish.pufferfish.util.AsyncExecutor("AsyncTracker", () -> true); // Bromine
+ 
+     public static <S extends MinecraftServer> S spin(Function<Thread, S> serverFactory) {
+         AtomicReference<S> atomicreference = new AtomicReference();
+diff --git a/src/main/java/net/minecraft/server/dedicated/DedicatedServer.java b/src/main/java/net/minecraft/server/dedicated/DedicatedServer.java
+index 2483ac6ca859ac4db12c7f00610e92a3f6ecc514..016d01d0e67ab1b7cd2429c8c9cef818813f1332 100644
+--- a/src/main/java/net/minecraft/server/dedicated/DedicatedServer.java
++++ b/src/main/java/net/minecraft/server/dedicated/DedicatedServer.java
+@@ -359,6 +359,7 @@ public class DedicatedServer extends MinecraftServer implements ServerInterface
+             }
+ 
+             if (gg.pufferfish.pufferfish.PufferfishConfig.enableAsyncMobSpawning) mobSpawnExecutor.start(); // Pufferfish
++            if (io.github.mediang.bromine.BromineConfig.asyncTrackerEnabled) bromine$asyncTrackerExecutor.start(); // Bromine
+             return true;
+         }
+     }
+diff --git a/src/main/java/net/minecraft/server/level/ChunkMap.java b/src/main/java/net/minecraft/server/level/ChunkMap.java
+index 0ab662448c24ba1d3c697f8096f03c88dd622e77..c684926906b72425b2c3a1365020155cf82d9279 100644
+--- a/src/main/java/net/minecraft/server/level/ChunkMap.java
++++ b/src/main/java/net/minecraft/server/level/ChunkMap.java
+@@ -156,7 +156,8 @@ public class ChunkMap extends ChunkStorage implements ChunkHolder.PlayerProvider
+     public final StructureManager structureManager;
+     private final String storageName;
+     private final PlayerMap playerMap;
+-    public final Int2ObjectMap<ChunkMap.TrackedEntity> entityMap;
++    public final Map<Integer, TrackedEntity> bromine$entityMap = new java.util.concurrent.ConcurrentHashMap<>(); // Bromine
++    public final Int2ObjectMap<ChunkMap.TrackedEntity> entityMap = new io.github.mediang.bromine.WrappedInt2ObjectMap<>(bromine$entityMap); // Bromine
+     private final Long2ByteMap chunkTypeCache;
+     private final Long2LongMap chunkSaveCooldowns;
+     private final Queue<Runnable> unloadQueue;
+@@ -415,7 +416,7 @@ public class ChunkMap extends ChunkStorage implements ChunkHolder.PlayerProvider
+         this.toDrop = new LongOpenHashSet();
+         this.tickingGenerated = new AtomicInteger();
+         this.playerMap = new PlayerMap();
+-        this.entityMap = new Int2ObjectOpenHashMap();
++        // this.entityMap = new Int2ObjectOpenHashMap(); // Bromine
+         this.chunkTypeCache = new Long2ByteOpenHashMap();
+         this.chunkSaveCooldowns = new Long2LongOpenHashMap();
+         this.structureManager = structureManager;
+@@ -2036,6 +2037,23 @@ public class ChunkMap extends ChunkStorage implements ChunkHolder.PlayerProvider
+ 
+     // Paper start - optimised tracker
+     private final void processTrackQueue() {
++        // Bromine start
++        if (io.github.mediang.bromine.BromineConfig.asyncTrackerEnabled) {
++            level.getServer().bromine$asyncTrackerExecutor.submit(() -> {
++                // There could be timings here, but no
++
++                for (TrackedEntity tracked : bromine$entityMap.values()) {
++                    tracked.updatePlayers(tracked.entity.getPlayersInTrackRange());
++                }
++
++                for (TrackedEntity tracked : bromine$entityMap.values()) {
++                    tracked.serverEntity.sendChanges();
++                }
++            });
++            return;
++        }
++        // Bromine end
++
+         this.level.timings.tracker1.startTiming();
+         try {
+             for (TrackedEntity tracker : this.entityMap.values()) {
+@@ -2058,7 +2076,7 @@ public class ChunkMap extends ChunkStorage implements ChunkHolder.PlayerProvider
+     }
+     // Paper end - optimised tracker
+ 
+-    protected void tick() {
++    protected final void tick() { // Bromine
+         // Paper start - optimized tracker
+         if (true) {
+             this.processTrackQueue();
+@@ -2231,7 +2249,7 @@ public class ChunkMap extends ChunkStorage implements ChunkHolder.PlayerProvider
+         final Entity entity;
+         private final int range;
+         SectionPos lastSectionPos;
+-        public final Set<ServerPlayerConnection> seenBy = new ReferenceOpenHashSet<>(); // Paper - optimise map impl
++        public final Set<ServerPlayerConnection> seenBy = java.util.Collections.synchronizedSet(new ReferenceOpenHashSet<>()); // Paper - optimise map impl // Bromine
+ 
+         public TrackedEntity(Entity entity, int i, int j, boolean flag) {
+             this.serverEntity = new ServerEntity(ChunkMap.this.level, entity, j, flag, this::broadcast, this.seenBy); // CraftBukkit
+@@ -2285,6 +2303,19 @@ public class ChunkMap extends ChunkStorage implements ChunkHolder.PlayerProvider
+         }
+ 
+         public void broadcast(Packet<?> packet) {
++            // Bromine start
++            if (io.github.mediang.bromine.BromineConfig.asyncTrackerEnabled) {
++                if (level.getServer().isSameThread()) {
++                    // This prevents multi-threading issues
++                    level.getServer().bromine$asyncTrackerExecutor.submit(() -> broadcast(packet));
++                } else {
++                    for (ServerPlayerConnection connection : seenBy) {
++                        level.getServer().processQueue.add(() -> connection.send(packet));
++                    }
++                }
++                return;
++            }
++            // Bromine end
+             Iterator iterator = this.seenBy.iterator();
+ 
+             while (iterator.hasNext()) {
+@@ -2298,7 +2329,9 @@ public class ChunkMap extends ChunkStorage implements ChunkHolder.PlayerProvider
+         public void broadcastAndSend(Packet<?> packet) {
+             this.broadcast(packet);
+             if (this.entity instanceof ServerPlayer) {
++                if (!io.github.mediang.bromine.BromineConfig.asyncTrackerEnabled || level.getServer().isSameThread()) // Bromine
+                 ((ServerPlayer) this.entity).connection.send(packet);
++                else level.getServer().processQueue.add(() -> ((ServerPlayer) this.entity).connection.send(packet)); // Bromine
+             }
+ 
+         }
+@@ -2323,7 +2356,7 @@ public class ChunkMap extends ChunkStorage implements ChunkHolder.PlayerProvider
+         }
+ 
+         public void updatePlayer(ServerPlayer player) {
+-            org.spigotmc.AsyncCatcher.catchOp("player tracker update"); // Spigot
++            // org.spigotmc.AsyncCatcher.catchOp("player tracker update"); // Spigot // Bromine
+             if (player != this.entity) {
+                 // Paper start - remove allocation of Vec3D here
+                 //Vec3 vec3d = player.position().subtract(this.entity.position()); // MC-155077, SPIGOT-5113
+diff --git a/src/main/java/net/minecraft/server/level/ServerEntity.java b/src/main/java/net/minecraft/server/level/ServerEntity.java
+index d52072ab126f2fdee30bb114f3058338edd72fd5..0be44e997b7efcc66dce6ae1fad96a35cd1a79cd 100644
+--- a/src/main/java/net/minecraft/server/level/ServerEntity.java
++++ b/src/main/java/net/minecraft/server/level/ServerEntity.java
+@@ -99,6 +99,27 @@ public class ServerEntity {
+             ItemStack itemstack = entityitemframe.getItem();
+ 
+             if (this.level.paperConfig.mapItemFrameCursorUpdateInterval > 0 && this.tickCount % this.level.paperConfig.mapItemFrameCursorUpdateInterval == 0 && itemstack.getItem() instanceof MapItem) { // CraftBukkit - Moved this.tickCounter % 10 logic here so item frames do not enter the other blocks // Paper - Make item frame map cursor update interval configurable
++                // Bromine start
++                if (io.github.mediang.bromine.BromineConfig.asyncTrackerEnabled && !level.getServer().isSameThread()) {
++                    List<ServerPlayer> trackedPlayers = new java.util.ArrayList<>(this.trackedPlayers.size());
++                    for (ServerPlayerConnection connection : this.trackedPlayers) {
++                        trackedPlayers.add(connection.getPlayer());
++                    }
++
++                    level.getServer().processQueue.add(() -> {
++                        Integer mapId = MapItem.getMapId(itemstack);
++                        MapItemSavedData map = MapItem.getSavedData(mapId, level);
++
++                        if (map == null) return;
++                        for (ServerPlayer player : trackedPlayers) {
++                            map.tickCarriedBy(player, itemstack);
++
++                            Packet<?> updatePacket = map.getUpdatePacket(mapId, player);
++                            if (updatePacket != null) player.connection.send(updatePacket);
++                        }
++                    });
++                } else {
++                    // Bromine end
+                 Integer integer = MapItem.getMapId(itemstack);
+                 MapItemSavedData worldmap = MapItem.getSavedData(integer, this.level);
+ 
+@@ -116,6 +137,7 @@ public class ServerEntity {
+                         }
+                     }
+                 }
++                } // Bromine
+             }
+ 
+             this.sendDirtyEntityData();
+@@ -240,6 +262,16 @@ public class ServerEntity {
+                 org.bukkit.util.Vector velocity = player.getVelocity();
+ 
+                 PlayerVelocityEvent event = new PlayerVelocityEvent(player, velocity.clone());
++                // Bromine start
++                if (io.github.mediang.bromine.BromineConfig.asyncTrackerEnabled && !level.getServer().isSameThread()) {
++                    if (io.github.mediang.bromine.BromineConfig.asyncTrackerVelocityEvent) {
++                        if (event.getHandlers().getRegisteredListeners().length > 0) {
++                            org.bukkit.Bukkit.getLogger().warning("Firing PlayerVelocityEvent in read-only mode");
++                            level.getServer().processQueue.add(() -> this.entity.level.getCraftServer().getPluginManager().callEvent(event));
++                        }
++                    }
++                } else
++                // Bromine end
+                 this.entity.level.getCraftServer().getPluginManager().callEvent(event);
+ 
+                 if (event.isCancelled()) {
+@@ -332,6 +364,9 @@ public class ServerEntity {
+             if (!list.isEmpty()) {
+                 consumer.accept(new ClientboundSetEquipmentPacket(this.entity.getId(), list));
+             }
++            if (io.github.mediang.bromine.BromineConfig.asyncTrackerEnabled && !level.getServer().isSameThread()) // Bromine
++                level.getServer().processQueue.add(() -> ((LivingEntity) this.entity).detectEquipmentUpdates()); // Bromine
++            else // Bromine
+             ((LivingEntity) this.entity).detectEquipmentUpdates(); // CraftBukkit - SPIGOT-3789: sync again immediately after sending
+         }
+ 
+@@ -412,7 +447,9 @@ public class ServerEntity {
+     private void broadcastAndSend(Packet<?> packet) {
+         this.broadcast.accept(packet);
+         if (this.entity instanceof ServerPlayer) {
++            if (!io.github.mediang.bromine.BromineConfig.asyncTrackerEnabled || level.getServer().isSameThread()) // Bromine
+             ((ServerPlayer) this.entity).connection.send(packet);
++            else level.getServer().processQueue.add(() -> ((ServerPlayer) this.entity).connection.send(packet)); // Bromine
+         }
+ 
+     }
+diff --git a/src/main/java/net/minecraft/server/level/ServerPlayer.java b/src/main/java/net/minecraft/server/level/ServerPlayer.java
+index 2f5e40437d1865a874c352999edd084226d4e47b..039894db32b665e5e15fac87f1cc2b477d509595 100644
+--- a/src/main/java/net/minecraft/server/level/ServerPlayer.java
++++ b/src/main/java/net/minecraft/server/level/ServerPlayer.java
+@@ -1262,7 +1262,8 @@ public class ServerPlayer extends Player {
+ 
+     @Override
+     public boolean broadcastToPlayer(ServerPlayer spectator) {
+-        return spectator.isSpectator() ? this.getCamera() == this : (this.isSpectator() ? false : super.broadcastToPlayer(spectator));
++        // Bromine - this method shows up with about 3.69% in the profiler, why is it so high?
++        return spectator.isSpectator() ? camera == null : /* ( */ !this.isSpectator(); // ? false : super.broadcastToPlayer(spectator)); // Bromine
+     }
+ 
+     @Override
+@@ -2005,7 +2006,7 @@ public class ServerPlayer extends Player {
+             }
+         }
+ 
+-        this.camera = entity; // only set after validating state
++        this.camera = entity == this ? null : entity; // only set after validating state // Bromine
+ 
+         if (entity != this) {
+             // Make sure we're in the right place
+diff --git a/src/main/java/org/bukkit/craftbukkit/entity/CraftPlayer.java b/src/main/java/org/bukkit/craftbukkit/entity/CraftPlayer.java
+index f12efe51b14ed3637a8ba45def9c94634a6f5e8f..0f277dac923e62c223aa71526c9aa75ff17685bc 100644
+--- a/src/main/java/org/bukkit/craftbukkit/entity/CraftPlayer.java
++++ b/src/main/java/org/bukkit/craftbukkit/entity/CraftPlayer.java
+@@ -1726,6 +1726,7 @@ public class CraftPlayer extends CraftHumanEntity implements Player {
+ 
+     @Override
+     public boolean canSee(org.bukkit.entity.Entity entity) {
++        if (hiddenEntities.isEmpty()) return true; // Bromine
+         return !this.hiddenEntities.containsKey(entity.getUniqueId());
+     }
+ 
