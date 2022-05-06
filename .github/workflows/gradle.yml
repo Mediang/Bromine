@@ -1,0 +1,42 @@
+name: Java CI with Gradle
+
+on:
+  push:
+    branches: [ ver/1.18 ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.commits[0].message, '[ci skip]')"
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            .gradle/caches
+          key: ${{ runner.os }}-gradle-${{ hashFiles('gradle.properties') }}
+          restore-keys: ${{ runner.os }}-gradle-
+
+      - name: Configure Git
+        run: git config --global user.email "no-reply@github.com" && git config --global user.name "Github Actions"
+
+      - name: Apply Patches
+        run: ./gradlew applyPatches --no-daemon
+
+      - name: Create Reobfuscated Paperclip Jar
+        run: ./gradlew createReobfPaperclipJar --no-daemon
+
+      - name: Upload Release Artifact
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: scripts/release.sh
