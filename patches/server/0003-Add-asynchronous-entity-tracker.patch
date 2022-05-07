@@ -486,7 +486,7 @@ index 0ab662448c24ba1d3c697f8096f03c88dd622e77..c684926906b72425b2c3a1365020155c
                  // Paper start - remove allocation of Vec3D here
                  //Vec3 vec3d = player.position().subtract(this.entity.position()); // MC-155077, SPIGOT-5113
 diff --git a/src/main/java/net/minecraft/server/level/ServerEntity.java b/src/main/java/net/minecraft/server/level/ServerEntity.java
-index d52072ab126f2fdee30bb114f3058338edd72fd5..0be44e997b7efcc66dce6ae1fad96a35cd1a79cd 100644
+index d52072ab126f2fdee30bb114f3058338edd72fd5..838e1d29bf889b9a526fccd4a2c455b70b22cfbb 100644
 --- a/src/main/java/net/minecraft/server/level/ServerEntity.java
 +++ b/src/main/java/net/minecraft/server/level/ServerEntity.java
 @@ -99,6 +99,27 @@ public class ServerEntity {
@@ -542,7 +542,26 @@ index d52072ab126f2fdee30bb114f3058338edd72fd5..0be44e997b7efcc66dce6ae1fad96a35
                  this.entity.level.getCraftServer().getPluginManager().callEvent(event);
  
                  if (event.isCancelled()) {
-@@ -332,6 +364,9 @@ public class ServerEntity {
+@@ -260,6 +292,9 @@ public class ServerEntity {
+ 
+     public void removePairing(ServerPlayer player) {
+         this.entity.stopSeenByPlayer(player);
++        if (io.github.mediang.bromine.BromineConfig.asyncTrackerEnabled && !level.getServer().isSameThread()) // Bromine
++            level.getServer().processQueue.add(() -> player.connection.send(new ClientboundRemoveEntitiesPacket(entity.getId()))); // Bromine
++        else // Bromine
+         player.connection.send(new ClientboundRemoveEntitiesPacket(new int[]{this.entity.getId()}));
+     }
+ 
+@@ -267,7 +302,7 @@ public class ServerEntity {
+         ServerGamePacketListenerImpl playerconnection = player.connection;
+ 
+         Objects.requireNonNull(player.connection);
+-        this.sendPairingData(playerconnection::send, player); // CraftBukkit - add player
++        this.sendPairingData(io.github.mediang.bromine.BromineConfig.asyncTrackerEnabled && !level.getServer().isSameThread() ? packet -> level.getServer().processQueue.add(() -> playerconnection.send(packet)) : playerconnection::send, player); // CraftBukkit - add player // Bromine
+         this.entity.startSeenByPlayer(player);
+     }
+ 
+@@ -332,6 +367,9 @@ public class ServerEntity {
              if (!list.isEmpty()) {
                  consumer.accept(new ClientboundSetEquipmentPacket(this.entity.getId(), list));
              }
@@ -552,7 +571,7 @@ index d52072ab126f2fdee30bb114f3058338edd72fd5..0be44e997b7efcc66dce6ae1fad96a35
              ((LivingEntity) this.entity).detectEquipmentUpdates(); // CraftBukkit - SPIGOT-3789: sync again immediately after sending
          }
  
-@@ -412,7 +447,9 @@ public class ServerEntity {
+@@ -412,7 +450,9 @@ public class ServerEntity {
      private void broadcastAndSend(Packet<?> packet) {
          this.broadcast.accept(packet);
          if (this.entity instanceof ServerPlayer) {
