@@ -4,6 +4,7 @@
 
 - Asynchronous entity tracker
 - Fixed book banning
+- Prevent enderpearl glitching
 
 ## Downloads
 

@@ -1,0 +1,80 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mediang <104988785+Mediang@users.noreply.github.com>
+Date: Sat, 7 May 2022 20:42:25 +0000
+Subject: [PATCH] Prevent enderpearl glitching
+
+
+diff --git a/src/main/java/io/github/mediang/bromine/BromineConfig.java b/src/main/java/io/github/mediang/bromine/BromineConfig.java
+index 10df3eeeae9fe64ae7d2b8865df06b8e2b90b28e..c7d118afc1ec889aff7294d840f27909a30a4ce8 100644
+--- a/src/main/java/io/github/mediang/bromine/BromineConfig.java
++++ b/src/main/java/io/github/mediang/bromine/BromineConfig.java
+@@ -123,4 +123,12 @@ public class BromineConfig {
+             "for a few seconds. If this is disabled, those things will no longer happen. But, the TPS takes a bit longer",
+             "to average out to 20 again (this isn't a problem, it is perfectly fine)."));
+     }
++
++    public static boolean preventPearlGlitching = true;
++    private static void preventPearlGlitching() {
++        preventPearlGlitching = getBoolean("settings.prevent-pearl-glitching", preventPearlGlitching);
++
++        config.setComments("settings.prevent-pearl-glitching", java.util.List.of(
++            "This prevents glitching through walls and roofs using enderpearls (e.g. at the top of the nether)."));
++    }
+ }
+diff --git a/src/main/java/net/minecraft/world/entity/projectile/ThrownEnderpearl.java b/src/main/java/net/minecraft/world/entity/projectile/ThrownEnderpearl.java
+index 23f77dfc6df93ef6a70e14a7e410263d39fae2cb..57b7fdb085536d5de73582709f4cf64a3d5b99dd 100644
+--- a/src/main/java/net/minecraft/world/entity/projectile/ThrownEnderpearl.java
++++ b/src/main/java/net/minecraft/world/entity/projectile/ThrownEnderpearl.java
+@@ -25,6 +25,8 @@ import org.bukkit.event.player.PlayerTeleportEvent;
+ 
+ public class ThrownEnderpearl extends ThrowableItemProjectile {
+ 
++    private net.minecraft.world.phys.Vec3 bromine$lastGoodPos, bromine$lastGoodDelta; // Bromine
++
+     public ThrownEnderpearl(EntityType<? extends ThrownEnderpearl> type, Level world) {
+         super(type, world);
+     }
+@@ -80,8 +82,27 @@ public class ThrownEnderpearl extends ThrowableItemProjectile {
+                             entity.stopRiding();
+                         }
+ 
++                        // Bromine start
++                        if (io.github.mediang.bromine.BromineConfig.preventPearlGlitching) {
++                            if (this.bromine$lastGoodPos != null) {
++                                net.minecraft.world.phys.Vec3 targetPos = this.bromine$lastGoodPos;
++                                int i = 0;
++                                while (true) {
++                                    net.minecraft.world.phys.Vec3 newPos = targetPos.add(this.bromine$lastGoodDelta = this.bromine$lastGoodDelta.scale(0.5));
++                                    if (!this.level.noCollision(entityplayer, entityplayer.getBoundingBoxAt(newPos.x, newPos.y, newPos.z))) break;
++
++                                    targetPos = newPos;
++                                    if (++i >= 100) break; // Happens on non-hard entity collision
++                                }
++
++                                entityplayer.connection.teleport(new org.bukkit.Location(teleEvent.getTo().getWorld(), targetPos.x, targetPos.y, targetPos.z, teleEvent.getTo().getYaw(), teleEvent.getTo().getPitch()));
++                                entity.resetFallDistance();
++                            }
++                        } else {
++                        // Bromine end
+                         entityplayer.connection.teleport(teleEvent.getTo());
+                         entity.resetFallDistance();
++                        } // Bromine
+                         CraftEventFactory.entityDamage = this;
+                         entity.hurt(DamageSource.FALL, 5.0F);
+                         CraftEventFactory.entityDamage = null;
+@@ -105,6 +126,15 @@ public class ThrownEnderpearl extends ThrowableItemProjectile {
+         if (entity instanceof Player && !entity.isAlive()) {
+             this.discard();
+         } else {
++            // Bromine start
++            if (io.github.mediang.bromine.BromineConfig.preventPearlGlitching && entity instanceof Player player) {
++                if (this.level.noCollision(player, player.getBoundingBoxAt(this.getX(), this.getY(), this.getZ()))) {
++                    this.bromine$lastGoodDelta = getDeltaMovement();
++                    this.bromine$lastGoodPos = position();
++                }
++            }
++            // Bromine end
++
+             super.tick();
+         }
+ 
