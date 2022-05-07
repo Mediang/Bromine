@@ -3,6 +3,7 @@
 ## Features
 
 - Asynchronous entity tracker
+- Fixed book banning
 
 ## Downloads
 
