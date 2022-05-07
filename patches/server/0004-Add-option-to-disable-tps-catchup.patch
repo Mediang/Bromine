@@ -1,0 +1,44 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mediang <104988785+Mediang@users.noreply.github.com>
+Date: Sat, 7 May 2022 15:31:18 +0000
+Subject: [PATCH] Add option to disable tps catchup
+
+Originally by purpur: https://github.com/PurpurMC/Purpur/blob/4e4f0df40d10e8b8b7c140e73215e78bd07a0820/patches/server/0052-Configurable-TPS-Catchup.patch
+
+Co-Authored-By: William Blake Galbreath <blake.galbreath@gmail.com>
+
+diff --git a/src/main/java/io/github/mediang/bromine/BromineConfig.java b/src/main/java/io/github/mediang/bromine/BromineConfig.java
+index e061f0e77cdd27dc58c62071f193c5e6d91a0cc0..10df3eeeae9fe64ae7d2b8865df06b8e2b90b28e 100644
+--- a/src/main/java/io/github/mediang/bromine/BromineConfig.java
++++ b/src/main/java/io/github/mediang/bromine/BromineConfig.java
+@@ -111,4 +111,16 @@ public class BromineConfig {
+             "This option enables the use of a velocity event, which gets called when a player is hit by something.",
+             "WARNING: The event is read-only and overwriting velocity will have no effect."));
+     }
++
++    public static boolean tpsCatchup = false;
++    private static void tpsCatchup() {
++        tpsCatchup = getBoolean("settings.tps-catchup", tpsCatchup);
++
++        config.setComments("settings.tps-catchup", java.util.List.of(
++            "WARNING: Plugins using schedules for tick bases clocks will run those clocks slower, if your server is lagging.",
++            "If your server lags a bit, it will run the next ticks faster, until the average tps is back to normal.",
++            "This results in a more stable tps, but also causes mobs to run really fast, if the server was lagging",
++            "for a few seconds. If this is disabled, those things will no longer happen. But, the TPS takes a bit longer",
++            "to average out to 20 again (this isn't a problem, it is perfectly fine)."));
++    }
+ }
+diff --git a/src/main/java/net/minecraft/server/MinecraftServer.java b/src/main/java/net/minecraft/server/MinecraftServer.java
+index def77625f68a57fa9f1c965cb41c98d2c38d4a3b..4053022786615ed61268f7cc7c326a561f2161c5 100644
+--- a/src/main/java/net/minecraft/server/MinecraftServer.java
++++ b/src/main/java/net/minecraft/server/MinecraftServer.java
+@@ -1228,7 +1228,9 @@ public abstract class MinecraftServer extends ReentrantBlockableEventLoop<TickTa
+                     this.tickServer(this::haveTime);
+                     this.profiler.popPush("nextTickWait");
+                     this.mayHaveDelayedTasks = true;
++                    if (io.github.mediang.bromine.BromineConfig.tpsCatchup) // Bromine
+                     this.delayedTasksMaxNextTickTime = Math.max(Util.getMillis() + 50L, this.nextTickTime);
++                    else this.delayedTasksMaxNextTickTime = this.nextTickTime = Util.getMillis() + 50L; // Bromine
+                     this.waitUntilNextTick();
+                     this.profiler.pop();
+                     this.endMetricsRecordingTick();
