@@ -1,0 +1,48 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mediang <104988785+Mediang@users.noreply.github.com>
+Date: Sat, 7 May 2022 15:56:12 +0000
+Subject: [PATCH] Fix book banning
+
+
+diff --git a/src/main/java/net/minecraft/network/PacketEncoder.java b/src/main/java/net/minecraft/network/PacketEncoder.java
+index 5fce1177e7198d791d4ab1c64b394c5b1c145782..e4af0eaf61c6615c40260568d9a3da917779fe03 100644
+--- a/src/main/java/net/minecraft/network/PacketEncoder.java
++++ b/src/main/java/net/minecraft/network/PacketEncoder.java
+@@ -41,11 +41,14 @@ public class PacketEncoder extends MessageToByteEncoder<Packet<?>> {
+                     packet.write(friendlyByteBuf);
+                     int j = friendlyByteBuf.writerIndex() - i;
+                     if (j > 8388608) {
++                        if (true) throw new PacketTooLargeException(packet, j); // Bromine
+                         throw new IllegalArgumentException("Packet too big (is " + j + ", should be less than 8388608): " + packet);
+                     } else {
+                         int k = channelHandlerContext.channel().attr(Connection.ATTRIBUTE_PROTOCOL).get().getId();
+                         JvmProfiler.INSTANCE.onPacketSent(k, integer, channelHandlerContext.channel().remoteAddress(), j);
+                     }
++                } catch (PacketTooLargeException exception) { // Bromine
++                    throw exception; // Bromine
+                 } catch (Throwable var10) {
+                     LOGGER.error("Packet encoding of packet ID {} threw (skippable? {})", integer, packet.isSkippable(), var10); // Paper - Give proper error message
+                     if (packet.isSkippable()) {
+diff --git a/src/main/java/net/minecraft/network/protocol/game/ClientboundContainerSetSlotPacket.java b/src/main/java/net/minecraft/network/protocol/game/ClientboundContainerSetSlotPacket.java
+index 13ee7ad9c9415cd785b5487de7131c932c2198a0..f4b66f1ace21b6daaf57f6c6e7d411e6b48439bb 100644
+--- a/src/main/java/net/minecraft/network/protocol/game/ClientboundContainerSetSlotPacket.java
++++ b/src/main/java/net/minecraft/network/protocol/game/ClientboundContainerSetSlotPacket.java
+@@ -54,4 +54,18 @@ public class ClientboundContainerSetSlotPacket implements Packet<ClientGamePacke
+     public int getStateId() {
+         return this.stateId;
+     }
++
++    // Bromine start
++    @Override
++    public boolean packetTooLarge(net.minecraft.network.Connection connection) {
++        if (this.itemStack == null || !this.itemStack.hasTag()) return false;
++
++        ItemStack item = this.itemStack.getItem().getDefaultInstance();
++        item.setHoverName(new net.minecraft.network.chat.TextComponent("Too much data :(")
++            .setStyle(net.minecraft.network.chat.Style.EMPTY.withItalic(false)));
++
++        connection.send(new ClientboundContainerSetSlotPacket(this.containerId, this.stateId, this.slot, item));
++        return true;
++    }
++    // Bromine end
+ }
