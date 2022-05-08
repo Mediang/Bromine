@@ -5,10 +5,10 @@ Subject: [PATCH] Bromine config files
 
 
 diff --git a/src/main/java/org/bukkit/Server.java b/src/main/java/org/bukkit/Server.java
-index 0eda17c8642aa49c2f57c409c3bd3234948feae9..bc6ac8d71ee268edf2b3b00c00a5635cd3a658c3 100644
+index 743a4091e06015b303d1eebc3b6bd393f98e4b9f..a33f2ff0745b5a62c4b2fc4140664c57841cdcf2 100644
 --- a/src/main/java/org/bukkit/Server.java
 +++ b/src/main/java/org/bukkit/Server.java
-@@ -1902,6 +1902,14 @@ public interface Server extends PluginMessageRecipient, net.kyori.adventure.audi
+@@ -1900,6 +1900,14 @@ public interface Server extends PluginMessageRecipient, net.kyori.adventure.audi
          }
          // Paper end
  
